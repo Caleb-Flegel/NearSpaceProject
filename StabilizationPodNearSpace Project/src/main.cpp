@@ -1,8 +1,8 @@
-#include <mbed.h>
+#include <mbed.h> //Importing the MBED framework
 #include <BNO055.h> //Commands to read the data from the 9axis sensor
 #include <DSHOT150.h> //Commands for the motor controller
 #include <FC_to_CM.h> //Commands for sending data to the command module
-#include <FATFileSystem.h> //Objects used to send data to the MBED SD card 
+#include <FATFileSystem.h> //Commands used to send data to the MBED SD card 
 #include <SDBlockDevice.h>
 
 //Making the threads
@@ -13,11 +13,11 @@ Thread nineDoFSensor(osPriorityNormal, 2000);
 void setSpeed();
 void getData();
 
-//9 Axis Sensor Address stuff 
+//Initializing the 9 Axis Sensor object and address
 I2C i2c(p9,p10);
 BNO055 nineAxisSensor (&i2c, 0x28 << 1); 
 
-//Motor Controller Address stuff 
+//Initializing the motor controller object
 DSHOT150 motor(p19); 
 
 //Class for reporting the data to the command module
@@ -32,11 +32,8 @@ DigitalOut errorLED(p23); //Signals there was an error
 DigitalOut sdLED(p21); //Signals there is data being written to the SD card
 DigitalOut compLED(p22); //Signals the program has been sucessfully completed
 
-//Value that converts angular velocity into a speed setting that won't make the motor spin too fast
+//Value that converts the measured angular velocity into a speed setting for the motor so that it spin too fast
 #define ERROR_CONVERSION .000005
-//Definitions for the motor speed stabilization
-#define mint 0.05 //Absolute value of minimim stable throttle
-#define ming 600 //Minimum acceptable gyro[1] value 
 
 //Global Variables to share between threads
 float headings [3]; //The basic data from the sensor (heading, roll, pitch)
@@ -67,7 +64,7 @@ int main() {
 
   //Getting ready to send the data to the command module
   radio.setResponseState(RESPONSE_DATA);
-  radio.setDataTransmitSize(10); //Prep it for 16 bytes
+  radio.setDataTransmitSize(10); //Prep it for 10 bytes
 
   //Getting the SD card ready
   int errors = fs.mount(&sd); 
@@ -89,7 +86,7 @@ int main() {
 
   motor.arm_3d(); //Arming the motor
 
-  //Setting up the sensor
+  //Setting up the 9 axis sensor
   char id; 
   id = nineAxisSensor.checkID();
   if (id != 0xA0) {
@@ -167,21 +164,25 @@ int main() {
   compLED = 1;
 }
 
+//Function that will be run by a thread to set the motor speed
 void setSpeed(){
-  Timer t;
+  Timer t; //initialize a timer used to send commands at times that work with the DSHOT prototcol
+
   while (true) {
-    t.start();
+    //start timer for this loop
+    t.start(); 
   
-    //Use the previous speed to set the current speed based on the angular velocity so the motor thrust isn't too sudden 
+    //Use the previous speed to set the current speed based on the rotational/heading-based angular velocity so the motor thrust isn't too sudden 
     currSpeed = prevSpeed + (gyros[1] * ERROR_CONVERSION); 
 
-    //Using this to make sure a certain number of packets have been sent to the motor controller
+    //Using while loop to make sure a certain number of packets have been sent to the motor controller
     while (t.elapsed_time() < 52ms)
     {
-      //Send the speed to the motor controller
+      //Send the desired speed to the motor controller
       motor.throttle_3d(currSpeed); 
     }
-    //ThisThread::sleep_for(5ms); 
+
+    //Reset timer for next loop
     t.reset(); 
 
     //Set the prev speed to current speed so it can be compared against later
@@ -189,17 +190,19 @@ void setSpeed(){
   }
 }
 
+//Function run by a thread to get the data from the 9 axis sensor
 void getData() {
   while (true)
   {
-    //Getting the heading variables
-    headings[0] = nineAxisSensor.readHeading();
-    headings[1] = nineAxisSensor.readRoll(); 
-    headings[2] = nineAxisSensor.readPitch(); 
+    //Getting the orientation variables
+    headings[0] = nineAxisSensor.readHeading(); //Heading
+    headings[1] = nineAxisSensor.readRoll(); //Roll
+    headings[2] = nineAxisSensor.readPitch(); //Pitch
 
-    //Getting the gyroData
+    //Getting the gyroData, gyros[1] being the heading-based angular velocity 
     nineAxisSensor.getGyroData(gyros); 
 
+    //Let other threads run for 60ms
     ThisThread::sleep_for(60ms);
   }
 }
